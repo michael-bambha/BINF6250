@@ -1,0 +1,174 @@
+---
+title: "Project01"
+author: "Michael Bambha"
+date: "9-10-25"
+output: 
+  github_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+library('reticulate')
+use_python('/usr/bin/python3')
+```
+
+```{python Load Libraries}
+from typing import List, Optional
+from collections import Counter
+from pprint import pprint
+```
+
+# Project 01: VCF File Parsing
+
+The purpose of this file is to find rare alleles with the key `AF_EXAC`
+in a clinvar VCF file, identify diseases associated with these rare alleles,
+and then tally the total number of diseases found throughout the VCF.
+
+We have implemented three functions (one helper) to accomplish this. We read
+the file line by line, parse the last column of the file into a dictionary,
+find the `AF_EXAC` key, and return the list of diseases. Then, using
+`Counter` from the `collections` library, we can update the `Counter` object
+every line to count the diseases.
+
+## parse_line
+
+The last column of a VCF file is structured as key-value pairs denoted with
+"=", and the pairs are separated by ";". As VCF files are tab-delimited,
+we can grab the last column with `.split("\t")[7]`. You could also index it
+with `[-1]` but since VCF format is always supposed to have 8 columns, 
+I chose to be explicit in grabbing with `[7]` as we can also use this as a
+check in case one of the lines is formatted wrong for whatever reason.
+
+Next, we grab the key-value pairs by splitting on `";"`, and we can add
+some functionality with `filter(None)` which will get rid of any empty
+strings. Now that we have a list of strings in format `"key=value"`, using
+`split("=", 1)` will split this into another list. The `1` positional argument
+refers to the number of times we split. Since we are iterating by item
+in the list, we expect there to be only one `=`, so this is just a way to ensure
+that unexpected `=` won't break our function.
+
+Lastly, we will get the value using `.get()` as it will return None if
+the key doesn't exist. Since we don't expect `AF_EXAC` to be in the line
+every time, this is a much better solution than doing `attrs[key] = value` since
+that will raise an error if the key doesn't exist.
+
+Since the value of `AF_EXAC` is a string, we have to cast it to `float` before
+evaluating the allele frequency. 
+
+```{python parse_line}
+def parse_line(vcf_string: str) -> Optional[List[str]]:
+    """Parse a line of a VCF file for the allele
+    frequency AF_EXAC and return a list of diseases
+    for that entry if the allele frequency is
+    < 0.0001. Returns None if AF_EXAC is not found
+    in the line, or if the allele frequency >
+    0.0001.
+
+    Args:
+        vcf_string (str): A non-metadata line of a VCF
+        file (tab-delimited). Example:
+
+        1	1014451	475281	C	T	.	.	AF_EXAC=0.0077226;CLNDN=Immunodeficiency_38_with_basal_ganglia_calcification
+
+    Returns:
+        Optional[List[str]]: List of diseases found or None if nothing was found.
+    """
+    attrs = {}
+
+    try:
+        info = vcf_string.split("\t")[7]
+    except IndexError:  # in case the line is incorrectly formatted, we return an empty list
+        return []
+
+    for part in filter(
+        None, info.strip().split(";")
+    ):  # if .strip().split() returns "", filter will remove from list
+        if "=" in part:
+            k, v = part.split("=", 1)
+            attrs[k.strip()] = v.strip()
+
+    allele_freq = attrs.get("AF_EXAC")
+
+    if allele_freq is None:
+        return []
+
+    if float(allele_freq) <= 0.0001:
+        return _filter_CLNDN(attrs["CLNDN"])
+
+    return []
+```
+
+## _filter_CLNDN helper function
+
+I added an additional helper function to filter out the CLNDN key
+if the disease was `not_specified` or `not_provided`. Diseases are separated
+by `"|"` so we just use `.split("|")` to return a list of all of the diseases. 
+
+```{python _filter_CLNDN helper}
+def _filter_CLNDN(clndn_str: str) -> Optional[List[str]]:
+    """Take in the value of CLNDN parsed out of a VCF file
+    and return a list of diseases.
+
+    Args:
+        clndn_str (str): The value of the CLNDN parsed from
+        key/value hierarchy of VCF formatted files. Contains
+        a string of diseases separated by "|".
+        Example: Myasthenic_syndrome|Breast_cancer
+
+    Returns:
+        Optional[List[str]]: List of diseases parsed by the "|".
+        Diseases that are "not_specified" or "not_provided" are
+        not returned.
+    """
+    strings_to_filter = ["not_specified", "not_provided"]
+    clndn_str_filtered = clndn_str.split("|")
+    return [
+        disease for disease in clndn_str_filtered if disease not in strings_to_filter
+    ]
+```
+
+## read_file
+
+Lastly, to bring everything together, a simple solution to count the diseases
+is the `Counter` object. Calling `Counter` on a list gives us essentially
+a dictionary of the counts with added functionality. Calling `.update()` on
+each new list will update the counts. 
+
+```{python read_file}
+def read_file(file_name: str) -> Optional[Counter[str]]:
+    """Read in a VCF file and return a dictionary of
+    diseases counts found to be associated with allele
+    frequencies of >0.0001. Counts represent the number
+    that each associated disease was found across
+    all variants.
+
+    Args:
+        file_name (str): VCF file to read
+
+    Returns:
+        Optional[dict]: Dictionary of disease counts
+        from all variants. Example:
+        {"Breast_cancer": 20, ...}
+        Will return None if no diseases are found for
+        variants of frequency < 0.0001.
+    """
+
+    disease_count = Counter()
+    with open(file_name, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            diseases = parse_line(line)
+            if diseases:
+                disease_count.update(diseases)
+
+    return disease_count
+```
+
+```{python Run Main}
+if __name__ == "__main__":
+    pprint(read_file("clinvar_20190923_short.vcf"))
+```
+
