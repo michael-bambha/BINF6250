@@ -7,6 +7,18 @@ output:
     toc: true
     toc_depth: 2
 ---
+## Reflection: Successes and Challenges
+
+- My main challenge was with a typo in my tab splitting, where I used
+`.split(/t)` instead of `.split (\t)` which ended up returning nothing, since
+using a forward slash searches for the literal '/t' and not a tab character.
+- For the most part, this was pretty straightforward. There were a couple of
+small tweaks I had to make, like using `.get()` instead of directly indexing
+the dictionary to prevent `KeyError` and also ensuring that the disease list
+was not empty before passing it to `Counter`. 
+- I'm pretty happy with the usage of `Counter` here since it was extremely
+straightforward to implement!
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo=TRUE)
@@ -15,7 +27,7 @@ use_python('/usr/bin/python3')
 ```
 
 ```{python Load Libraries}
-from typing import List, Optional
+from typing import List
 from collections import Counter
 from pprint import pprint
 ```
@@ -23,7 +35,7 @@ from pprint import pprint
 # Project 01: VCF File Parsing
 
 The purpose of this file is to find rare alleles with the key `AF_EXAC`
-in a clinvar VCF file, identify diseases associated with these rare alleles,
+in a ClinVar VCF file, identify diseases associated with these rare alleles,
 and then tally the total number of diseases found throughout the VCF.
 
 We have implemented three functions (one helper) to accomplish this. We read
@@ -58,13 +70,11 @@ Since the value of `AF_EXAC` is a string, we have to cast it to `float` before
 evaluating the allele frequency. 
 
 ```{python parse_line}
-def parse_line(vcf_string: str) -> Optional[List[str]]:
+def parse_line(vcf_string: str) -> List[str]:
     """Parse a line of a VCF file for the allele
     frequency AF_EXAC and return a list of diseases
     for that entry if the allele frequency is
-    < 0.0001. Returns None if AF_EXAC is not found
-    in the line, or if the allele frequency >
-    0.0001.
+    < 0.0001.
 
     Args:
         vcf_string (str): A non-metadata line of a VCF
@@ -73,7 +83,7 @@ def parse_line(vcf_string: str) -> Optional[List[str]]:
         1	1014451	475281	C	T	.	.	AF_EXAC=0.0077226;CLNDN=Immunodeficiency_38_with_basal_ganglia_calcification
 
     Returns:
-        Optional[List[str]]: List of diseases found or None if nothing was found.
+        List[str]: List of diseases found or None if nothing was found.
     """
     attrs = {}
 
@@ -85,6 +95,7 @@ def parse_line(vcf_string: str) -> Optional[List[str]]:
     for part in filter(
         None, info.strip().split(";")
     ):  # if .strip().split() returns "", filter will remove from list
+      # filter(None, ...) evaluates truthiness, not just explicit None
         if "=" in part:
             k, v = part.split("=", 1)
             attrs[k.strip()] = v.strip()
@@ -94,7 +105,7 @@ def parse_line(vcf_string: str) -> Optional[List[str]]:
     if allele_freq is None:
         return []
 
-    if float(allele_freq) <= 0.0001:
+    if float(allele_freq) < 0.0001:
         return _filter_CLNDN(attrs["CLNDN"])
 
     return []
@@ -107,7 +118,7 @@ if the disease was `not_specified` or `not_provided`. Diseases are separated
 by `"|"` so we just use `.split("|")` to return a list of all of the diseases. 
 
 ```{python _filter_CLNDN helper}
-def _filter_CLNDN(clndn_str: str) -> Optional[List[str]]:
+def _filter_CLNDN(clndn_str: str) -> List[str]:
     """Take in the value of CLNDN parsed out of a VCF file
     and return a list of diseases.
 
@@ -118,14 +129,14 @@ def _filter_CLNDN(clndn_str: str) -> Optional[List[str]]:
         Example: Myasthenic_syndrome|Breast_cancer
 
     Returns:
-        Optional[List[str]]: List of diseases parsed by the "|".
+        List[str]: List of diseases parsed by the "|".
         Diseases that are "not_specified" or "not_provided" are
         not returned.
     """
     strings_to_filter = ["not_specified", "not_provided"]
-    clndn_str_filtered = clndn_str.split("|")
+    clndn_str_split = clndn_str.split("|")
     return [
-        disease for disease in clndn_str_filtered if disease not in strings_to_filter
+        disease for disease in clndn_str_split if disease not in strings_to_filter
     ]
 ```
 
@@ -137,10 +148,10 @@ a dictionary of the counts with added functionality. Calling `.update()` on
 each new list will update the counts. 
 
 ```{python read_file}
-def read_file(file_name: str) -> Optional[Counter[str]]:
+def read_file(file_name: str) -> Counter[str]:
     """Read in a VCF file and return a dictionary of
     diseases counts found to be associated with allele
-    frequencies of >0.0001. Counts represent the number
+    frequencies of < 0.0001. Counts represent the number
     that each associated disease was found across
     all variants.
 
@@ -148,11 +159,9 @@ def read_file(file_name: str) -> Optional[Counter[str]]:
         file_name (str): VCF file to read
 
     Returns:
-        Optional[dict]: Dictionary of disease counts
+        Counter[str]: Dictionary of disease counts
         from all variants. Example:
         {"Breast_cancer": 20, ...}
-        Will return None if no diseases are found for
-        variants of frequency < 0.0001.
     """
 
     disease_count = Counter()
@@ -171,4 +180,3 @@ def read_file(file_name: str) -> Optional[Counter[str]]:
 if __name__ == "__main__":
     pprint(read_file("clinvar_20190923_short.vcf"))
 ```
-
